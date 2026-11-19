@@ -6,7 +6,7 @@ use crust_core::launcher::{Launch, LaunchOptions, LoaderKind};
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::fs::OpenOptions;
 use std::net::TcpListener;
 use std::path::{Component, Path, PathBuf};
@@ -73,12 +73,40 @@ fn reset_logs_for_launch(game_root: &Path, instance_name: Option<&str>) -> Resul
 }
 
 fn tail_file(path: &Path, max_lines: usize) -> String {
-    match std::fs::read_to_string(path) {
-        Ok(contents) => {
-            let lines: Vec<&str> = contents.lines().collect();
-            let start = lines.len().saturating_sub(max_lines);
-            lines[start..].join("\n")
+    // Minecraft debug.log can grow very large. The UI polls logs frequently,
+    // so only read the newest 1 MiB instead of loading the entire file on every
+    // refresh. This bounds both disk I/O and temporary memory usage.
+    const MAX_TAIL_BYTES: u64 = 1024 * 1024;
+
+    let result = (|| -> std::io::Result<String> {
+        let mut file = std::fs::File::open(path)?;
+        let file_len = file.metadata()?.len();
+        let start = file_len.saturating_sub(MAX_TAIL_BYTES);
+        if start > 0 {
+            file.seek(SeekFrom::Start(start))?;
         }
+
+        let mut bytes = Vec::with_capacity((file_len - start) as usize);
+        file.read_to_end(&mut bytes)?;
+
+        // The first line may begin before the byte window. Drop that partial
+        // line so the log viewer never shows a misleading fragment.
+        if start > 0 {
+            if let Some(first_newline) = bytes.iter().position(|byte| *byte == b'\\n') {
+                bytes.drain(..=first_newline);
+            } else {
+                bytes.clear();
+            }
+        }
+
+        let contents = String::from_utf8_lossy(&bytes);
+        let lines: Vec<&str> = contents.lines().collect();
+        let first = lines.len().saturating_sub(max_lines);
+        Ok(lines[first..].join("\n"))
+    })();
+
+    match result {
+        Ok(contents) => contents,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => "No Minecraft log has been created yet. Launch the game once to generate logs/latest.log.".into(),
         Err(error) => format!("Could not read log file {}: {error}", path.display()),
     }
