@@ -376,6 +376,10 @@ fn get_updater_logs() -> Result<String, String> {
     }
 }
 
+fn updater_failure_marker(version: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("NOVA-Client-Update-{}-failed.marker", version))
+}
+
 fn version_is_newer(latest: &str, current: &str) -> bool {
     let parse = |value: &str| -> Option<Vec<u64>> {
         value.trim_start_matches('v').split('.').map(|part| part.parse::<u64>().ok()).collect()
@@ -457,11 +461,13 @@ async fn check_for_updates_inner() -> Result<Value, String> {
     let latest = release["tag_name"].as_str().ok_or("The latest NOVA release has no version tag.")?
         .trim_start_matches('v').to_owned();
     let available = version_is_newer(&latest, current);
+    let auto_install_allowed = !updater_failure_marker(&latest).exists();
     let download_url = if available { Some(release_installer_url(&release)?) } else { None };
     Ok(json!({
         "currentVersion": current,
         "latestVersion": latest,
         "available": available,
+        "autoInstallAllowed": auto_install_allowed,
         "releasePublished": true,
         "releaseNotes": release["body"].as_str().unwrap_or("No release notes were provided."),
         "publishedAt": release["published_at"].as_str().unwrap_or(""),
@@ -484,6 +490,8 @@ async fn install_update_inner(app: tauri::AppHandle) -> Result<(), String> {
     if !version_is_newer(latest, env!("CARGO_PKG_VERSION")) {
         return Err("NOVA is already up to date.".into());
     }
+    let failure_marker = updater_failure_marker(latest);
+    let _ = std::fs::remove_file(&failure_marker);
     updater_log(&format!("Downloading NOVA version {latest}."));
     let url = release_installer_url(&release)?;
     let client = http_client()?;
@@ -509,11 +517,10 @@ async fn install_update_inner(app: tauri::AppHandle) -> Result<(), String> {
     let script = std::env::temp_dir().join(format!("NOVA-Client-Update-{}.ps1", std::process::id()));
     let log_path = updater_log_path();
     let script_contents = format!(
-        "$ErrorActionPreference = 'Stop'\n$launcherPid = {}\n$log = {}\n$installer = {}\n$exe = {}\ntry {{\n  while (Get-Process -Id $launcherPid -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 300 }}\n  $process = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru\n  if ($process.ExitCode -notin @(0, 1641, 3010)) {{ throw \"NSIS installer exited with code $($process.ExitCode)\" }}\n  Add-Content -LiteralPath $log -Value ('[updater] Installer completed successfully; exit code ' + $process.ExitCode)\n  Start-Process -FilePath $exe\n}} catch {{\n  Add-Content -LiteralPath $log -Value ('[updater] Installer failed: ' + $_.Exception.Message)\n  if (Test-Path -LiteralPath $exe) {{ Start-Process -FilePath $exe }}\n}} finally {{ Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue }}\n",
-        std::process::id(), quote_ps(&log_path), quote_ps(&installer), quote_ps(&executable)
+        "$ErrorActionPreference = 'Stop'\n$launcherPid = {}\n$log = {}\n$installer = {}\n$exe = {}\n$failedMarker = {}\n$expectedVersion = '{}'\ntry {{\n  while (Get-Process -Id $launcherPid -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 300 }}\n  $process = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru\n  if ($process.ExitCode -notin @(0, 1641, 3010)) {{\n    Add-Content -LiteralPath $log -Value ('[updater] Silent install returned ' + $process.ExitCode + '; retrying with visible installer UI.')\n    $process = Start-Process -FilePath $installer -Wait -PassThru\n  }\n  if ($process.ExitCode -notin @(0, 1641, 3010)) {{ throw \"Installer exited with code $($process.ExitCode)\" }}\n  if (-not (Test-Path -LiteralPath $exe)) {{ throw 'The NOVA application executable is missing after installation.' }}\n  $installedVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion\n  if ($installedVersion -and $installedVersion -notlike ('*' + $expectedVersion + '*')) {{ throw ('Installed version check failed: expected ' + $expectedVersion + ', found ' + $installedVersion) }}\n  Add-Content -LiteralPath $log -Value ('[updater] Installer completed and version check passed: ' + $expectedVersion)\n  Start-Process -FilePath $exe\n}} catch {{\n  Add-Content -LiteralPath $log -Value ('[updater] Installer failed: ' + $_.Exception.Message)\n  Set-Content -LiteralPath $failedMarker -Value $_.Exception.Message\n  if (Test-Path -LiteralPath $exe) {{ Start-Process -FilePath $exe }}\n}} finally {{ Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue }}\n",
+        std::process::id(), quote_ps(&log_path), quote_ps(&installer), quote_ps(&executable),
+        quote_ps(&failure_marker), latest
     );
-    std::fs::write(&script, script_contents)
-        .map_err(|e| format!("Could not prepare the NOVA restart helper: {e}"))?;
     if let Err(error) = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(&script)
