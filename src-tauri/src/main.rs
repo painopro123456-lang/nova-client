@@ -18,7 +18,7 @@ use tauri::Emitter;
 const CURSEFORGE_API: &str = "https://api.curseforge.com/v1";
 const MICROSOFT_CLIENT_ID: &str = "09e6a2a2-90ee-47a6-92c4-f8810958de91";
 
-const NOVA_RELEASES_API: &str = "https://api.github.com/repos/painopro123456-lang/nova-client./releases/latest";
+const NOVA_RELEASES_API: &str = "https://api.github.com/repos/painopro123456-lang/nova-client/releases/latest";
 const NOVA_INSTALLER_ASSET: &str = "NOVA-Client-Setup.exe";
 const MAX_UPDATER_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
 
