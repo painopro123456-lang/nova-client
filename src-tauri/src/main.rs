@@ -92,7 +92,7 @@ fn tail_file(path: &Path, max_lines: usize) -> String {
         // The first line may begin before the byte window. Drop that partial
         // line so the log viewer never shows a misleading fragment.
         if start > 0 {
-            if let Some(first_newline) = bytes.iter().position(|byte| *byte == b'\\n') {
+            if let Some(first_newline) = bytes.iter().position(|byte| *byte == b'\n') {
                 bytes.drain(..=first_newline);
             } else {
                 bytes.clear();
