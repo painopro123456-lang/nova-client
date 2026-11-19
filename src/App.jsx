@@ -269,6 +269,23 @@ function LocalInstances({ versions, memoryMb, setPage, launchState, setLaunchSta
   const [creating,setCreating]=useState(false);
   useEffect(()=>{
     let alive=true;
+    invoke("get_running_minecraft_instances").then(names=>{
+      if(!alive)return;
+      const running=Array.isArray(names)?names:[];
+      setLaunchState(current=>{
+        if(current&&running.includes(current.instanceName))
+          return {...current,phase:"running",message:"Minecraft is still running. You can return to the game or stop it here."};
+        if(current&&["starting","running","stopping"].includes(current.phase))
+          return {...current,phase:"closed",message:"Minecraft is not running. You can launch this instance again."};
+        if(running.length)
+          return {instanceName:running[0],phase:"running",message:"Minecraft is still running. You can return to the game or stop it here."};
+        return current;
+      });
+    }).catch(()=>{});
+    return()=>{alive=false;};
+  },[]);
+  useEffect(()=>{
+    let alive=true;
     let unlisten;
     listen("nova-game-exit",event=>{
       if(!alive)return;
