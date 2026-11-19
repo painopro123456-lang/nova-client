@@ -1151,6 +1151,9 @@ fn stop_minecraft(instance_name: String) -> Result<(), String> {
         let mut persisted = read_process_tracking();
         persisted.remove(&key);
         write_process_tracking(&persisted);
+        if let Some(active) = ACTIVE_LAUNCHES.get() {
+            if let Ok(mut operations) = active.lock() { operations.remove(&key); }
+        }
         return Ok(());
     }
     game_log(&format!("Stop requested for Minecraft instance '{key}' (pid {pid})."));
@@ -1168,6 +1171,9 @@ fn stop_minecraft(instance_name: String) -> Result<(), String> {
         if persisted.get(&key).copied() == Some(pid) {
             persisted.remove(&key);
             write_process_tracking(&persisted);
+        }
+        if let Some(active) = ACTIVE_LAUNCHES.get() {
+            if let Ok(mut operations) = active.lock() { operations.remove(&key); }
         }
     }
     #[cfg(not(windows))]
