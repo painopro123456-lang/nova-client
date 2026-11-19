@@ -2,6 +2,14 @@ name: Frontend validation
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "index.html"
+      - "vite.config.js"
+      - ".github/workflows/frontend-check.yml"
   push:
     branches: [main]
     paths:
