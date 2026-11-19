@@ -628,7 +628,7 @@ export default function App() {
       // Automatically install a newer published release on startup. The Rust
       // updater downloads the official GitHub installer, waits for NOVA to exit,
       // runs the installer silently, then reopens the launcher.
-      if (info?.available && info?.releasePublished !== false && !autoUpdateStarted.current) {
+      if (info?.available && info?.releasePublished !== false && info?.autoInstallAllowed !== false && !autoUpdateStarted.current) {
         autoUpdateStarted.current = true;
         setUpdateBusy(true);
         try {
