@@ -346,7 +346,7 @@ function LocalInstances({ versions, memoryMb, setPage, launchState, setLaunchSta
     try{
       await invoke("stop_minecraft",{instanceName:instance.instanceName});
       setLaunchState(current=>current?.instanceName===instance.instanceName&&current.phase==="stopping"
-        ?{...current,message:"Stop signal sent. Waiting for Minecraft to close…"}:current);
+        ?{...current,phase:"closed",message:"Minecraft stopped. You can launch this instance again."}:current);
     }catch(error){
       setLaunchState({instanceName:instance.instanceName,phase:"running",message:typeof error==="string"?error:(error.message||"Could not stop Minecraft.")});
     }
