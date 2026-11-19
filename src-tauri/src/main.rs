@@ -328,7 +328,7 @@ fn updater_log(message: &str) {
                     let mut bytes = Vec::with_capacity((length - start) as usize);
                     if file.read_to_end(&mut bytes).is_ok() {
                         if start > 0 {
-                            if let Some(newline) = bytes.iter().position(|byte| *byte == b'\\n') {
+                            if let Some(newline) = bytes.iter().position(|byte| *byte == b'\n') {
                                 bytes.drain(..=newline);
                             }
                         }
@@ -341,7 +341,7 @@ fn updater_log(message: &str) {
 
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let safe_message = message.replace('\\r', " ").replace('\\n', " ");
+        let safe_message = message.replace('\r', " ").replace('\n', " ");
         let _ = writeln!(file, "[unix:{timestamp}] {safe_message}");
     }
 }
@@ -358,7 +358,7 @@ fn get_updater_logs() -> Result<String, String> {
         let mut bytes = Vec::with_capacity((length - start) as usize);
         file.read_to_end(&mut bytes)?;
         if start > 0 {
-            if let Some(newline) = bytes.iter().position(|byte| *byte == b'\\n') {
+            if let Some(newline) = bytes.iter().position(|byte| *byte == b'\n') {
                 bytes.drain(..=newline);
             } else {
                 bytes.clear();
