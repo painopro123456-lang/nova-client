@@ -22,6 +22,36 @@ const NOVA_RELEASES_API: &str = "https://api.github.com/repos/painopro123456-lan
 const NOVA_INSTALLER_ASSET: &str = "NOVA-Client-Setup.exe";
 const MAX_UPDATER_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
 
+static MINECRAFT_VERSION_MANIFEST_CACHE: OnceLock<Mutex<Option<(Instant, Value)>>> = OnceLock::new();
+
+async fn fetch_minecraft_version_manifest() -> Result<Value, String> {
+    const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+
+    let cache = MINECRAFT_VERSION_MANIFEST_CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((fetched_at, manifest)) = guard.as_ref() {
+            if fetched_at.elapsed() < CACHE_TTL {
+                return Ok(manifest.clone());
+            }
+        }
+    }
+
+    let response = http_client()?
+        .get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
+        .send()
+        .await
+        .map_err(|e| format!("Could not fetch Minecraft version manifest: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("Minecraft version service returned an error: {e}"))?;
+    let manifest = response.json::<Value>().await
+        .map_err(|e| format!("Minecraft version manifest was unreadable: {e}"))?;
+
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((Instant::now(), manifest.clone()));
+    }
+    Ok(manifest)
+}
+
 fn logs_directory() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     base.join("NOVA Client").join("logs")
@@ -877,15 +907,7 @@ fn sign_out_minecraft() -> Result<(), String> {
 
 #[tauri::command]
 async fn minecraft_versions() -> Result<Value, String> {
-    let response = http_client()?
-        .get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
-        .send()
-        .await
-        .map_err(|e| format!("Could not fetch Minecraft version list: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("Minecraft version service returned an error: {e}"))?;
-    response.json::<Value>().await
-        .map_err(|e| format!("Minecraft version list was unreadable: {e}"))
+    fetch_minecraft_version_manifest().await
 }
 
 #[tauri::command]
@@ -982,14 +1004,8 @@ async fn launch_minecraft(app: tauri::AppHandle, version: String, loader: Option
     if version.is_empty() || version.eq_ignore_ascii_case("null") || version.eq_ignore_ascii_case("undefined") {
         return Err("No Minecraft version was selected. Choose a version and try again.".into());
     }
-    let manifest = http_client()?
-        .get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
-        .send().await
-        .map_err(|e| format!("Could not verify Minecraft version {version}: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("Could not verify Minecraft version {version}: {e}"))?
-        .json::<Value>().await
-        .map_err(|e| format!("Could not read Minecraft version manifest: {e}"))?;
+    let manifest = fetch_minecraft_version_manifest().await
+        .map_err(|e| format!("Could not verify Minecraft version {version}: {e}"))?;
     let known_version = manifest["versions"].as_array()
         .map(|items| items.iter().any(|item| item["id"].as_str() == Some(version.as_str())))
         .unwrap_or(false);
