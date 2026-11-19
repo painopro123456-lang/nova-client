@@ -588,6 +588,15 @@ impl InstanceReservation {
         if !operations.insert(name.clone()) {
             return Err("This instance is already running or another operation is using it.".into());
         }
+        let mut persisted = read_process_tracking();
+        if let Some(pid) = persisted.get(&name).copied() {
+            if is_tracked_java_running(pid) {
+                operations.remove(&name);
+                return Err("This instance is already running in Minecraft. Stop it first or return to the running game.".into());
+            }
+            persisted.remove(&name);
+            write_process_tracking(&persisted);
+        }
         Ok(Self { name })
     }
 }
@@ -1096,7 +1105,11 @@ async fn launch_minecraft(app: tauri::AppHandle, version: String, loader: Option
     ACTIVE_GAME_PIDS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
         .lock().map_err(|_| "Could not register the running Minecraft process.")?
         .insert(launch_key.clone(), game_pid);
+    let mut persisted = read_process_tracking();
+    persisted.insert(launch_key.clone(), game_pid);
+    write_process_tracking(&persisted);
     let process_key = launch_key.clone();
+    let process_pid = game_pid;
 
     // Keep the reservation alive until the game exits; dropping it releases the lock.
     tokio::spawn(async move {
@@ -1104,6 +1117,11 @@ async fn launch_minecraft(app: tauri::AppHandle, version: String, loader: Option
         let exit = child.wait().await;
         if let Some(pids) = ACTIVE_GAME_PIDS.get() {
             if let Ok(mut pids) = pids.lock() { pids.remove(&process_key); }
+        }
+        let mut persisted = read_process_tracking();
+        if persisted.get(&process_key).copied() == Some(process_pid) {
+            persisted.remove(&process_key);
+            write_process_tracking(&persisted);
         }
         let (success, code) = match exit {
             Ok(status) => (status.success(), status.code()),
@@ -1127,7 +1145,14 @@ fn stop_minecraft(instance_name: String) -> Result<(), String> {
     let key = safe_instance_name(&instance_name)?;
     let pid = ACTIVE_GAME_PIDS.get()
         .and_then(|pids| pids.lock().ok().and_then(|pids| pids.get(&key).copied()))
+        .or_else(|| read_process_tracking().get(&key).copied())
         .ok_or("This modpack does not have a running Minecraft process.")?;
+    if !is_tracked_java_running(pid) {
+        let mut persisted = read_process_tracking();
+        persisted.remove(&key);
+        write_process_tracking(&persisted);
+        return Ok(());
+    }
     game_log(&format!("Stop requested for Minecraft instance '{key}' (pid {pid})."));
     #[cfg(windows)]
     {
@@ -1135,9 +1160,14 @@ fn stop_minecraft(instance_name: String) -> Result<(), String> {
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output()
             .map_err(|error| format!("Could not stop Minecraft: {error}"))?;
-        if !output.status.success() {
+        if !output.status.success() && is_tracked_java_running(pid) {
             let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(if detail.is_empty() { "Windows could not stop the Minecraft process.".into() } else { detail });
+        }
+        let mut persisted = read_process_tracking();
+        if persisted.get(&key).copied() == Some(pid) {
+            persisted.remove(&key);
+            write_process_tracking(&persisted);
         }
     }
     #[cfg(not(windows))]
@@ -2512,6 +2542,7 @@ fn main() {
             minecraft_versions,
             launch_minecraft,
             stop_minecraft,
+            get_running_minecraft_instances,
             prepare_modpack_instance,
             install_modrinth_modpack,
             curseforge_modpack_versions,
