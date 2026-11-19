@@ -528,12 +528,12 @@ function SettingsPage({ memoryMb, setMemoryMb, updateInfo, updateBusy, updateErr
     <div className="feature-card updater-card">
       <div className="feature-icon blue"><ArrowDownToLine size={18}/></div>
       <b>{updateInfo?.available ? "A new NOVA version is ready" : "Keep NOVA up to date"}</b>
-      <p>{updateInfo ? (updateInfo.available ? "Version "+updateInfo.latestVersion+" is available. Your current version is "+updateInfo.currentVersion+"." : (updateInfo.releasePublished === false ? "NOVA has not published its first release yet. Automatic updates will activate after a release is published." : "You're running the latest published version ("+updateInfo.currentVersion+").")) : "Check GitHub for the latest official NOVA release."}</p>
+      <p>{updateInfo ? (updateInfo.available ? "Version "+updateInfo.latestVersion+" is available. Your current version is "+updateInfo.currentVersion+"." : (updateInfo.releasePublished === false ? "NOVA has not published its first release yet. Update checks will be available after a release is published." : "You're running the latest published version ("+updateInfo.currentVersion+").")) : "Check GitHub for the latest official NOVA release."}</p>
       {updateInfo?.available && <div className="catalog-note"><b>Release notes</b><p style={{whiteSpace:"pre-wrap",marginTop:8}}>{updateInfo.releaseNotes}</p></div>}
       {updateError && <div className="catalog-note error">{updateError}</div>}
       <div className="pack-install-row">
         <button className="secondary-btn" onClick={onCheckUpdates} disabled={updateBusy}>{updateBusy?"Checking…":"Check for updates"}</button>
-        {updateInfo?.available && <button className="primary-btn" onClick={onInstallUpdate} disabled={updateBusy}><ArrowDownToLine size={14}/>{updateBusy?"Preparing update…" :"Retry update"}</button>}
+        {updateInfo?.available && <button className="primary-btn" onClick={onInstallUpdate} disabled={updateBusy}><ArrowDownToLine size={14}/>{updateBusy?"Preparing update…" :"Install update"}</button>}
       </div>
       <span className="feature-status">{updateInfo ? "CURRENT VERSION "+updateInfo.currentVersion : "UPDATE STATUS NOT CHECKED"}</span>
     </div>
@@ -630,19 +630,7 @@ export default function App() {
       if (!alive) return;
       setUpdateInfo(info);
       setUpdateError("");
-      // Automatically install a newer published release on startup. The updater downloads and opens the official Windows installer. Follow its prompts to finish updating.
-      if (info?.available && info?.releasePublished !== false && !autoUpdateStarted.current) {
-        autoUpdateStarted.current = true;
-        setUpdateBusy(true);
-        try {
-          await invoke("install_update");
-        } catch (error) {
-          if (alive) {
-            setUpdateError(typeof error === "string" ? error : (error.message || "Automatic update failed. You can retry below."));
-            setUpdateBusy(false);
-          }
-        }
-      }
+      // Check for updates automatically, but never download or install until the user clicks Install update.
     }).catch(error => {
       if (alive) setUpdateError(typeof error === "string" ? error : (error.message || "Could not check for updates."));
     });
