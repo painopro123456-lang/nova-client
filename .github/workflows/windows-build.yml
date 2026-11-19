@@ -12,13 +12,23 @@ on:
         description: "Release version (without v), e.g. 0.1.316"
         required: false
         type: string
-        default: "0.1.318"
+        default: ""
+  pull_request:
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - "index.html"
+      - "vite.config.js"
+      - ".github/workflows/windows-build.yml"
   push:
     branches: [main]
     paths:
       - "src/**"
       - "src-tauri/**"
       - "package.json"
+      - "package-lock.json"
       - "index.html"
       - "vite.config.js"
       - ".github/workflows/windows-build.yml"
@@ -38,7 +48,9 @@ jobs:
       - name: Clone source to a Windows-safe path
         shell: pwsh
         working-directory: D:/a
-        run: git clone --depth 1 --branch "$env:GITHUB_REF_NAME" https://github.com/painopro123456-lang/nova-client.git nova-src
+        run: |
+          $branch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+          git clone --depth 1 --branch "$branch" https://github.com/painopro123456-lang/nova-client.git nova-src
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
