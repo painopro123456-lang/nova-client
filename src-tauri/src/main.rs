@@ -539,6 +539,42 @@ const MAX_ARCHIVE_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_PACK_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 static ACTIVE_LAUNCHES: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
 static ACTIVE_GAME_PIDS: OnceLock<Mutex<std::collections::HashMap<String, u32>>> = OnceLock::new();
+
+fn process_tracking_file() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("NOVA Client").join("running-games.json")
+}
+
+fn read_process_tracking() -> std::collections::HashMap<String, u32> {
+    std::fs::read(process_tracking_file()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+}
+
+fn write_process_tracking(pids: &std::collections::HashMap<String, u32>) {
+    let path = process_tracking_file();
+    if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+    if let Ok(bytes) = serde_json::to_vec(pids) { let _ = std::fs::write(path, bytes); }
+}
+
+#[cfg(windows)]
+fn is_tracked_java_running(pid: u32) -> bool {
+    let output = match std::process::Command::new("tasklist.exe").args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]).output() { Ok(v) if v.status.success() => v, _ => return false };
+    String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+        let fields: Vec<&str> = line.split(',').collect();
+        let image = fields.first().unwrap_or(&"").trim().trim_matches('"').to_ascii_lowercase();
+        let found_pid = fields.get(1).unwrap_or(&"").trim().trim_matches('"');
+        (image == "java.exe" || image == "javaw.exe") && found_pid == pid.to_string()
+    })
+}
+
+#[cfg(not(windows))]
+fn is_tracked_java_running(_pid: u32) -> bool { false }
+
+#[tauri::command]
+fn get_running_minecraft_instances() -> Result<Vec<String>, String> {
+    let mut pids = read_process_tracking();
+    pids.retain(|_, pid| is_tracked_java_running(*pid));
+    write_process_tracking(&pids);
+    Ok(pids.into_keys().collect())
+}
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 struct InstanceReservation {
