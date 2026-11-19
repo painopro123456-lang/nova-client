@@ -1,6 +1,6 @@
 [package]
 name = "nova-client"
-version = "0.1.318"
+version = "0.1.319"
 description = "NOVA Client desktop application"
 authors = ["NOVA Client"]
 edition = "2021"
