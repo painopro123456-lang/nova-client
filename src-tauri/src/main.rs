@@ -1004,19 +1004,24 @@ async fn launch_minecraft(app: tauri::AppHandle, version: String, loader: Option
     if version.is_empty() || version.eq_ignore_ascii_case("null") || version.eq_ignore_ascii_case("undefined") {
         return Err("No Minecraft version was selected. Choose a version and try again.".into());
     }
-    let manifest = fetch_minecraft_version_manifest().await
-        .map_err(|e| format!("Could not verify Minecraft version {version}: {e}"))?;
+    let account_json = read_saved_minecraft_account_json("Game launch")?;
+    let saved_account: Account = serde_json::from_str(&account_json)
+        .map_err(|e| format!("Saved Minecraft account is unreadable: {e}"))?;
+
+    // Mojang version validation and Microsoft/Minecraft token refresh are
+    // independent network operations. Run them together so launch setup waits
+    // for the slower request only once instead of serially waiting for both.
+    let (manifest, account) = tokio::try_join!(
+        fetch_minecraft_version_manifest(),
+        refresh_saved_minecraft_account(&saved_account)
+    ).map_err(|error| format!("Could not prepare Minecraft launch: {error}"))?;
+
     let known_version = manifest["versions"].as_array()
         .map(|items| items.iter().any(|item| item["id"].as_str() == Some(version.as_str())))
         .unwrap_or(false);
     if !known_version {
         return Err(format!("Minecraft version '{version}' was not found in Mojang's official version list. Refresh the version list and try again."));
     }
-
-    let account_json = read_saved_minecraft_account_json("Game launch")?;
-    let saved_account: Account = serde_json::from_str(&account_json)
-        .map_err(|e| format!("Saved Minecraft account is unreadable: {e}"))?;
-    let account = refresh_saved_minecraft_account(&saved_account).await?;
 
     let local_app_data = std::env::var("LOCALAPPDATA")
         .map_err(|_| "Windows LOCALAPPDATA folder could not be found.".to_string())?;
