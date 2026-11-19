@@ -360,15 +360,23 @@ function LocalInstances({ versions, memoryMb, setPage, launchState, setLaunchSta
       polling=true;
       try{
         const result=await invoke("get_game_logs",{instanceName:instance.instanceName});
-        if(active)setInstancePanel(current=>current?.instance?.instanceName===instance.instanceName&&current.tab==="logs"
-          ?{...current,loading:false,error:"",logs:combineLogOutput(result)}:current);
+        if(active){
+          const nextLogs=combineLogOutput(result);
+          setInstancePanel(current=>{
+            if(current?.instance?.instanceName!==instance.instanceName||current.tab!=="logs")return current;
+            // Avoid a React update when the log tail has not changed.
+            if(current.logs===nextLogs&&!current.loading&&!current.error)return current;
+            return {...current,loading:false,error:"",logs:nextLogs};
+          });
+        }
       }catch(error){
         if(active)setInstancePanel(current=>current?.instance?.instanceName===instance.instanceName&&current.tab==="logs"
           ?{...current,loading:false,error:typeof error==="string"?error:(error.message||"Could not refresh game logs.")}:current);
       }finally{polling=false;}
     };
     refresh();
-    const timer=setInterval(refresh,1200);
+    // Log files do not need sub-second polling; reduce idle disk reads and rerenders.
+    const timer=setInterval(refresh,3000);
     return()=>{active=false;clearInterval(timer);};
   },[selectedInstance?.instanceName,selectedInstanceTab]);
   const removePack=async(id,pack)=>{
