@@ -623,7 +623,6 @@ export default function App() {
     }).then(stop=>{if(alive)unlisten=stop;else stop();});
     return()=>{alive=false;unlisten?.();};
   },[]);
-  const autoUpdateStarted = useRef(false);
   useEffect(() => {
     let alive = true;
     invoke("check_for_updates").then(async info => {
