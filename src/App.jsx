@@ -23,7 +23,7 @@ function Sidebar({ page, setPage, signedIn, accountName, onSignOut }) {
     <div className="brand"><div className="brand-mark"><Moon size={19}/></div><div><b>NOVA</b><span>CLIENT</span></div><span className="build-tag">BETA</span></div>
     <div className="profile-card"><div className="avatar">N</div><div className="profile-copy"><b>{signedIn ? (accountName || "Microsoft account") : "Guest profile"}</b><span>{signedIn ? "Minecraft account connected" : "Sign in to continue"}</span></div><ChevronDown size={15}/></div>
     <nav>{navGroups.map(group => <section className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map(item => <button key={item.id} className={page === item.id ? "nav-item active" : "nav-item"} onClick={() => setPage(item.id)}><item.icon size={17}/><span>{item.label}</span>{item.id === "pvp" && <span className="nav-dot"/>}</button>)}</section>)}</nav>
-    <div className="sidebar-bottom"><div className="status-line"><span className="status-pulse"/><span>NOVA launcher</span></div>{signedIn && <button className="help-link" onClick={onSignOut}>Sign out of Microsoft</button>}<button className="help-link" onClick={() => setPage("settings")}><CircleHelp size={16}/> Help & support</button><div className="sidebar-foot">NOVA CLIENT <span>0.1.0</span></div></div>
+    <div className="sidebar-bottom"><div className="status-line"><span className="status-pulse"/><span>NOVA launcher</span></div>{signedIn && <button className="help-link" onClick={onSignOut}>Sign out of Microsoft</button>}<button className="help-link" onClick={() => setPage("settings")}><CircleHelp size={16}/> Help & support</button><div className="sidebar-foot">NOVA CLIENT <span>0.1.319</span></div></div>
   </aside>;
 }
 
