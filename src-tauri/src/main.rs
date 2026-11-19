@@ -73,10 +73,9 @@ fn reset_logs_for_launch(game_root: &Path, instance_name: Option<&str>) -> Resul
 }
 
 fn tail_file(path: &Path, max_lines: usize) -> String {
-    // Minecraft debug.log can grow very large. The UI polls logs frequently,
-    // so only read the newest 1 MiB instead of loading the entire file on every
-    // refresh. This bounds both disk I/O and temporary memory usage.
-    const MAX_TAIL_BYTES: u64 = 1024 * 1024;
+    // Log views are polled by the UI. Keep each read small so browsing many
+    // instances cannot cause large bursts of disk I/O or temporary allocations.
+    const MAX_TAIL_BYTES: u64 = 128 * 1024;
 
     let result = (|| -> std::io::Result<String> {
         let mut file = std::fs::File::open(path)?;
@@ -175,7 +174,7 @@ fn get_game_logs(instance_name: Option<String>) -> Result<Value, String> {
         }
         let instances_dir = root.join("instances");
         if let Ok(entries) = std::fs::read_dir(&instances_dir) {
-            for entry in entries.flatten().take(30) {
+            for entry in entries.flatten().take(10) {
                 if !entry.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
                 let logs_dir = entry.path().join("logs");
                 for filename in ["latest.log", "debug.log"] {
@@ -284,23 +283,64 @@ fn game_event_logger() -> Arc<dyn Fn(Event) + Send + Sync> {
 }
 
 fn updater_log(message: &str) {
+    const MAX_LOG_BYTES: u64 = 1024 * 1024;
+    const RETAIN_BYTES: u64 = 256 * 1024;
     let path = updater_log_path();
     if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+
+    // Rotate the updater log before it grows without bound. Retain only its
+    // newest 256 KiB; the UI separately displays the newest 250 lines.
+    if std::fs::metadata(&path).is_ok_and(|metadata| metadata.len() > MAX_LOG_BYTES) {
+        if let Ok(mut file) = std::fs::File::open(&path) {
+            if let Ok(length) = file.metadata().map(|metadata| metadata.len()) {
+                let start = length.saturating_sub(RETAIN_BYTES);
+                if file.seek(SeekFrom::Start(start)).is_ok() {
+                    let mut bytes = Vec::with_capacity((length - start) as usize);
+                    if file.read_to_end(&mut bytes).is_ok() {
+                        if start > 0 {
+                            if let Some(newline) = bytes.iter().position(|byte| *byte == b'\\n') {
+                                bytes.drain(..=newline);
+                            }
+                        }
+                        let _ = std::fs::write(&path, bytes);
+                    }
+                }
+            }
+        }
+    }
+
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let safe_message = message.replace('\r', " ").replace('\n', " ");
+        let safe_message = message.replace('\\r', " ").replace('\\n', " ");
         let _ = writeln!(file, "[unix:{timestamp}] {safe_message}");
     }
 }
 
 #[tauri::command]
 fn get_updater_logs() -> Result<String, String> {
-    match std::fs::read_to_string(updater_log_path()) {
-        Ok(contents) => {
-            let lines: Vec<&str> = contents.lines().collect();
-            let start = lines.len().saturating_sub(250);
-            Ok(lines[start..].join("\n"))
+    const MAX_READ_BYTES: u64 = 256 * 1024;
+    let path = updater_log_path();
+    let result = (|| -> std::io::Result<String> {
+        let mut file = std::fs::File::open(&path)?;
+        let length = file.metadata()?.len();
+        let start = length.saturating_sub(MAX_READ_BYTES);
+        file.seek(SeekFrom::Start(start))?;
+        let mut bytes = Vec::with_capacity((length - start) as usize);
+        file.read_to_end(&mut bytes)?;
+        if start > 0 {
+            if let Some(newline) = bytes.iter().position(|byte| *byte == b'\\n') {
+                bytes.drain(..=newline);
+            } else {
+                bytes.clear();
+            }
         }
+        let contents = String::from_utf8_lossy(&bytes);
+        let lines: Vec<&str> = contents.lines().collect();
+        let first = lines.len().saturating_sub(250);
+        Ok(lines[first..].join("\n"))
+    })();
+    match result {
+        Ok(contents) => Ok(contents),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("No updater activity has been logged yet.".into()),
         Err(error) => Err(format!("Could not read updater log: {error}")),
     }
