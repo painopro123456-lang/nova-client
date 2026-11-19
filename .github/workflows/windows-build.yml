@@ -12,7 +12,7 @@ on:
         description: "Release version (without v), e.g. 0.1.316"
         required: false
         type: string
-        default: "0.1.316"
+        default: "0.1.317"
   push:
     branches: [main]
     paths:
