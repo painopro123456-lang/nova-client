@@ -38,7 +38,7 @@ jobs:
       - name: Clone source to a Windows-safe path
         shell: pwsh
         working-directory: D:/a
-        run: git clone --depth 1 --branch "$env:GITHUB_REF_NAME" https://github.com/painopro123456-lang/nova-client..git nova-src
+        run: git clone --depth 1 --branch "$env:GITHUB_REF_NAME" https://github.com/painopro123456-lang/nova-client.git nova-src
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
