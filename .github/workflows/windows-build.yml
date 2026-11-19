@@ -136,23 +136,26 @@ jobs:
         id: app_version
         shell: pwsh
         working-directory: D:/a/nova-src
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
           $cargo = Get-Content "src-tauri/Cargo.toml" -Raw
-          if ($cargo -notmatch '(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*
-) {
+          if ($cargo -notmatch '(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"') {
             throw "Could not read a stable three-part version from src-tauri/Cargo.toml."
           }
-          "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          $version = $Matches[1]
+          if ($env:RELEASE_VERSION) { $version = $env:RELEASE_VERSION }
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "Invalid release version: $version" }
+          "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Publish updater release
-        # Publish on normal main builds as well as explicit release runs. The
-        # version comes from Cargo.toml, so updater metadata matches the installer.
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+        # Publish on normal main builds as well as explicitly requested releases.
+        if: github.event_name == 'push' || inputs.publish_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.event_name == 'workflow_dispatch' && inputs.release_version || steps.app_version.outputs.version }}
+          tag_name: v${{ steps.app_version.outputs.version }}
           target_commitish: main
-          name: NOVA Client v${{ github.event_name == 'workflow_dispatch' && inputs.release_version || steps.app_version.outputs.version }}
+          name: NOVA Client v${{ steps.app_version.outputs.version }}
           generate_release_notes: true
           files: D:/a/nova-src/src-tauri/target/release/bundle/nsis/NOVA-Client-Setup.exe
           fail_on_unmatched_files: true
