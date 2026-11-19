@@ -24,7 +24,7 @@ on:
       - ".github/workflows/windows-build.yml"
 concurrency:
   group: nova-windows-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
