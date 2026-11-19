@@ -512,20 +512,29 @@ impl Drop for InstanceReservation {
 }
 
 fn http_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(12))
-        .timeout(Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("Could not initialize secure network client: {e}"))
+    // Reuse one client so repeated API calls share its connection pool and TLS
+    // sessions instead of rebuilding the network stack for every request.
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(12))
+            .timeout(Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("Could not initialize secure network client: {e}"))
+    }).clone()
 }
 
 fn download_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        // Large modpacks can take longer than five minutes on slower connections.
-        .timeout(Duration::from_secs(1800))
-        .build()
-        .map_err(|e| format!("Could not initialize the download client: {e}"))
+    // Keep a separate long-timeout pool for large modpack downloads.
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            // Large modpacks can take longer than five minutes on slower connections.
+            .timeout(Duration::from_secs(1800))
+            .build()
+            .map_err(|e| format!("Could not initialize the download client: {e}"))
+    }).clone()
 }
 
 fn is_curseforge_cdn_host(host: &str) -> bool {
